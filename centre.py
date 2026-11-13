@@ -1,8 +1,8 @@
 from datetime import datetime
 
-from personne import Etudiant, Formateur
-from cours import Cours
-from evaluation import Evaluation
+from personne import Etudiant, Formateur, personne_depuis_dict
+from cours import Cours, cours_depuis_dict
+from evaluation import Evaluation,  evaluation_depuis_dict
 
 SEUIL_REUSSITE = 60    # moyenne minimale pour réussir un cours (sur 100)
 
@@ -287,6 +287,128 @@ class Centre:
         cours = self.get_cours(id_cours)
         return len(cours.get_inscrits()) / cours.get_capacite() * 100
 
+    # ---------- conversion JSON ----------
+    def to_dict(self):
+        return {
+            "etudiants": [e.to_dict() for e in self._etudiants.values()],
+            "formateurs": [f.to_dict() for f in self._formateurs.values()],
+            "cours": [c.to_dict() for c in self._cours.values()],
+            "evaluations": [e.to_dict() for e in self._evaluations.values()],
+            "historique": list(self._historique)
+        }
+
+    @staticmethod
+    def _ajouter_unique(dictionnaire, objet, libelle):
+        """Ajoute l'objet par son identifiant, en refusant les identifiants
+        invalides ou en double."""
+        identifiant = objet.get_id()
+        if isinstance(identifiant, bool) or not isinstance(identifiant, int):
+            raise ValueError(f"Identifiant invalide pour {libelle} : {identifiant!r}.")
+        if identifiant in dictionnaire:
+            raise ValueError(f"Identifiant de {libelle} en double : {identifiant}.")
+        dictionnaire[identifiant] = objet
+
+    @staticmethod
+    def depuis_dict(data):
+        """Reconstitue un Centre complet (y compris les classes filles
+        Etudiant et Formateur). Lève une erreur si les données sont
+        invalides ou incohérentes."""
+        centre = Centre()
+
+        for d in data["formateurs"]:
+            formateur = personne_depuis_dict(d)
+            if not isinstance(formateur, Formateur):
+                raise ValueError("Un formateur du fichier a un type incorrect.")
+            Centre._ajouter_unique(centre._formateurs, formateur, "formateur")
+
+        for d in data["etudiants"]:
+            etudiant = personne_depuis_dict(d)
+            if not isinstance(etudiant, Etudiant):
+                raise ValueError("Un étudiant du fichier a un type incorrect.")
+            Centre._ajouter_unique(centre._etudiants, etudiant, "étudiant")
+
+        for d in data["cours"]:
+            Centre._ajouter_unique(centre._cours, cours_depuis_dict(d), "cours")
+
+        for d in data["evaluations"]:
+            Centre._ajouter_unique(centre._evaluations,
+                                   evaluation_depuis_dict(d), "évaluation")
+
+        for entree in data["historique"]:
+            if (not isinstance(entree, dict)
+                    or "date" not in entree
+                    or "operation" not in entree
+                    or "details" not in entree):
+                raise ValueError("Une entrée de l'historique est invalide.")
+            centre._historique.append(entree)
+
+        centre._verifier_coherence()
+        return centre
+
+    def _verifier_coherence(self):
+        """Vérifie que les relations entre objets sont cohérentes."""
+        for cours in self._cours.values():
+            id_cours = cours.get_id()
+            id_formateur = cours.get_id_formateur()
+
+            if id_formateur not in self._formateurs:
+                raise ValueError(f"Cours {id_cours} : formateur inconnu ({id_formateur}).")
+            if id_cours not in self._formateurs[id_formateur].get_cours_animes():
+                raise ValueError(
+                    f"Cours {id_cours} : absent des cours animés de son formateur.")
+
+            inscrits = cours.get_inscrits()
+            attente = cours.get_liste_attente()
+            tous = inscrits + attente
+            if len(set(tous)) != len(tous):
+                raise ValueError(
+                    f"Cours {id_cours} : étudiant en double (inscrits / liste d'attente).")
+
+            for id_etudiant in inscrits:
+                if id_etudiant not in self._etudiants:
+                    raise ValueError(
+                        f"Cours {id_cours} : étudiant inscrit inconnu ({id_etudiant}).")
+                if not self._etudiants[id_etudiant].est_inscrit(id_cours):
+                    raise ValueError(
+                        f"Cours {id_cours} : l'étudiant {id_etudiant} n'a pas "
+                        f"ce cours dans ses inscriptions.")
+
+            for id_etudiant in attente:
+                if id_etudiant not in self._etudiants:
+                    raise ValueError(
+                        f"Cours {id_cours} : étudiant en attente inconnu ({id_etudiant}).")
+
+            if len(inscrits) > cours.get_capacite():
+                raise ValueError(f"Cours {id_cours} : capacité dépassée.")
+
+        for etudiant in self._etudiants.values():
+            for id_cours in etudiant.get_cours_inscrits():
+                if id_cours not in self._cours:
+                    raise ValueError(
+                        f"Étudiant {etudiant.get_id()} : cours inconnu ({id_cours}).")
+                if not self._cours[id_cours].est_inscrit(etudiant.get_id()):
+                    raise ValueError(
+                        f"Étudiant {etudiant.get_id()} : inscription au cours "
+                        f"{id_cours} incohérente.")
+
+        for formateur in self._formateurs.values():
+            for id_cours in formateur.get_cours_animes():
+                if (id_cours not in self._cours
+                        or self._cours[id_cours].get_id_formateur() != formateur.get_id()):
+                    raise ValueError(
+                        f"Formateur {formateur.get_id()} : cours animé incohérent "
+                        f"({id_cours}).")
+
+        for evaluation in self._evaluations.values():
+            id_cours = evaluation.get_id_cours()
+            if id_cours not in self._cours:
+                raise ValueError(
+                    f"Évaluation {evaluation.get_id()} : cours inconnu ({id_cours}).")
+            for id_etudiant in evaluation.get_notes():
+                if not self._cours[id_cours].est_inscrit(id_etudiant):
+                    raise ValueError(
+                        f"Évaluation {evaluation.get_id()} : note d'un étudiant "
+                        f"non inscrit ({id_etudiant}).")
 
 if __name__ == "__main__":
     centre = Centre()
