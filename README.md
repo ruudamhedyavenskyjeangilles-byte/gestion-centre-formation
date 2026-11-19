@@ -56,7 +56,7 @@ de la programmation orientée objet : encapsulation, héritage
 | `evaluation.py` | Classe `Evaluation` (coefficient et notes) |
 | `stockage.py` | Chargement et sauvegarde JSON |
 | `donnees_demo.json` | Données de démonstration |
-| `rapport.pdf` | Document de présentation (2 à 3 pages) |
+| `Rapport.pdf` | Document de présentation (2 à 3 pages) |
 
 ## Lancer l'application
 
